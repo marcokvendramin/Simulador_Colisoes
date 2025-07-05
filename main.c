@@ -18,10 +18,6 @@ struct Vec3 {
     Vec3 operator/(float s) const { return {x / s, y / s, z / s}; }
     float dot(const Vec3& b) const { return x * b.x + y * b.y + z * b.z; }
     float length() const { return std::sqrt(x*x + y*y + z*z); }
-    Vec3 normalized() const {
-        float len = length();
-        return (len == 0) ? Vec3{0,0,0} : (*this / len);
-    }
 };
 
 struct Ball {
@@ -33,6 +29,7 @@ struct Ball {
 int SCREEN_WIDTH = 800, SCREEN_HEIGHT = 800;
 float BOX_SIZE = 500.0f, FOCAL_LENGTH = 600.0f, CAMERA_Z = 700.0f, DT = 0.016f, CR = 1.0f;
 int N_BALLS = 10;
+float VEL_MAX = 100.0f;
 
 SDL_Point project(const Vec3& p) {
     float scale = FOCAL_LENGTH / (CAMERA_Z - p.z);
@@ -85,7 +82,6 @@ void handleBallCollision(Ball& a, Ball& b) {
         a.pos = a.pos - correction;
         b.pos = b.pos + correction;
 
-        // Change color on collision
         static std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
         auto randColor = [&]() -> SDL_Color {
             return {
@@ -109,28 +105,34 @@ SDL_Texture* renderText(SDL_Renderer* ren, TTF_Font* font, const std::string& ms
 }
 
 int main() {
-    // Parâmetros fixos (sem interação)
-    N_BALLS = 10;
-    SCREEN_WIDTH = 800;
-    SCREEN_HEIGHT = 800;
-    DT = 0.016f;
-    CR = 0.9f;  // coeficiente de restituição fixo
+    // Entrada interativa
+    std::cout << "Digite o número de bolas: ";
+    std::cin >> N_BALLS;
+    std::cout << "Digite a largura da janela (px): ";
+    std::cin >> SCREEN_WIDTH;
+    SCREEN_HEIGHT = SCREEN_WIDTH;
+    std::cout << "Digite o intervalo de tempo DT (ex: 0.016): ";
+    std::cin >> DT;
+    std::cout << "Digite o coeficiente de restituição (entre 0 e 1): ";
+    std::cin >> CR;
+    std::cout << "Digite a velocidade máxima inicial das bolas: ";
+    std::cin >> VEL_MAX;
 
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();
-    SDL_Window* win = SDL_CreateWindow("Energia Cinética - Simulação 3D", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    SDL_Window* win = SDL_CreateWindow("Simulador 3D de Colisões", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                        SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     SDL_Renderer* ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     TTF_Font* font = TTF_OpenFont("DejaVuSans.ttf", 18);
     if (!font) {
-        std::cerr << "Erro ao carregar a fonte DejaVuSans.ttf\n";
+        std::cerr << "Erro ao carregar a fonte.\n";
         return 1;
     }
 
     std::vector<Ball> balls;
     std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
     std::uniform_real_distribution<float> pdist(-BOX_SIZE / 2 + 50, BOX_SIZE / 2 - 50);
-    std::uniform_real_distribution<float> vdist(-100, 100);
+    std::uniform_real_distribution<float> vdist(-VEL_MAX, VEL_MAX);
     std::uniform_real_distribution<float> rdist(10, 30);
 
     for (int i = 0; i < N_BALLS; ++i) {
@@ -138,9 +140,8 @@ int main() {
         b.radius = rdist(rng);
         b.mass = b.radius * b.radius * b.radius;
         int attempts = 0;
-        const int max_attempts = 1000;
         bool valid = false;
-        while (!valid && attempts < max_attempts) {
+        while (!valid && attempts++ < 1000) {
             b.pos = {pdist(rng), pdist(rng), pdist(rng)};
             b.vel = {vdist(rng), vdist(rng), vdist(rng)};
             valid = true;
@@ -150,11 +151,6 @@ int main() {
                     break;
                 }
             }
-            attempts++;
-        }
-        if (!valid) {
-            std::cout << "Aviso: nao foi possivel posicionar bola " << i+1
-                      << " apos " << max_attempts << " tentativas.\n";
         }
         b.color = {
             static_cast<Uint8>(rng() % 256),
@@ -183,10 +179,9 @@ int main() {
             for (size_t j = i + 1; j < balls.size(); ++j)
                 handleBallCollision(balls[i], balls[j]);
 
-        float energiaCineticaTotal = 0;
-        for (auto& b : balls) {
-            energiaCineticaTotal += 0.5f * b.mass * (b.vel.x * b.vel.x + b.vel.y * b.vel.y + b.vel.z * b.vel.z);
-        }
+        float k_total = 0.0f;
+        for (auto& b : balls)
+            k_total += 0.5f * b.mass * (b.vel.x*b.vel.x + b.vel.y*b.vel.y + b.vel.z*b.vel.z);
 
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
@@ -205,8 +200,7 @@ int main() {
         }
 
         std::stringstream ss;
-        ss << std::fixed << std::setprecision(2)
-           << "Energia Cinetica Total = " << energiaCineticaTotal;
+        ss << std::fixed << std::setprecision(2) << "Energia Cinética Total = " << k_total;
         SDL_Texture* tex = renderText(ren, font, ss.str(), white);
 
         if (tex) {
